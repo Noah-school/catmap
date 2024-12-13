@@ -120,6 +120,7 @@ Host: 10.0.10.2
 Ports: 22, 53 
 ```
 epd_image.png: (emulated display)
+####
 ![example](https://gcdnb.pbrd.co/images/1K0QjAhc512K.png?o=1)
 ## Screenshots
 
