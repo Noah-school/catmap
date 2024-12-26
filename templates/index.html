@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Display</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        img {
+            max-width: 100%;
+            min-height: 250px;
+            margin-bottom: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 80%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <img id="displayImage" src="/image" alt="Display Image">
+    <table id="onlineIpsTable">
+        <thead>
+            <tr>
+                <th>IP Address</th>
+                <th>Open Ports</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Dynamic content -->
+        </tbody>
+    </table>
+    <script>
+        function refreshImage() {
+            const img = document.getElementById('displayImage');
+            img.src = '/image?' + new Date().getTime();
+        }
+        setInterval(refreshImage, 1000);
+
+        function fetchOnlineIps() {
+            fetch('/online_ips')
+                .then(response => response.json())
+                .then(data => {
+                    const tableBody = document.getElementById('onlineIpsTable').getElementsByTagName('tbody')[0];
+                    tableBody.innerHTML = '';
+                    data.forEach(item => {
+                        const row = tableBody.insertRow();
+                        const cellIp = row.insertCell(0);
+                        const cellPorts = row.insertCell(1);
+                        cellIp.textContent = item.host;
+                        cellPorts.textContent = item.ports.join(', ');
+                    });
+                });
+        }
+        setInterval(fetchOnlineIps, 1000);
+        fetchOnlineIps();
+    </script>
+</body>
+</html>
