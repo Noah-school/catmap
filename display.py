@@ -5,6 +5,25 @@ import logging
 logging.basicConfig(filename='./output/errors.log', level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
+class ImageDisplay:
+    def __init__(self):
+        self.width = 122
+        self.height = 250
+        
+    def getbuffer(self, image):
+        return image
+
+    def display(self, image):
+        print("Full refresh triggered.")
+        self._simulate_display(image)
+
+    def _simulate_display(self, image):
+        image = Image.frombytes('1', (self.width, self.height), image)
+        image.save("./output/epd_image.png")
+        print("Image saved as epd_image.png")
+
+
+
 def initialize_display(simulate=False):
     try:
         if simulate:
@@ -52,5 +71,9 @@ def update_display(epd, image, text_styles, full_refresh=False, logo_path=None):
             epd.display(epd.getbuffer(image))
         else:
             epd.displayPartial(epd.getbuffer(image))
+        
+        epdImg = ImageDisplay()
+        epdImg.display(bytes(epd.getbuffer(image)))
+        
     except Exception as e:
         logging.error(f"Error updating display: {e}")
