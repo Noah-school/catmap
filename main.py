@@ -1,80 +1,59 @@
+import os
 import time
-from PIL import Image, ImageDraw, ImageFont
-from collections import deque
 import nmap
-import concurrent.futures
-import logging
+import json
 import click
+import logging
+import concurrent.futures
+from PIL import Image
+from collections import deque
+from display import initialize_display, update_display
+from config import Config
 
-from simulate_eink import SimulatedEPD
+config_path = os.path.join(os.path.dirname(__file__), 'catmap.conf')
+config = Config(config_path)
+config_data = config.get()
+currentIP = config_data.get('network')
 
 logging.basicConfig(filename='./output/errors.log', level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-def initialize_display(simulate=True):
-    try:
-        if simulate:
-            return SimulatedEPD()
-        else:
-            from waveshare_epd import epd2in13_V4
-            epd = epd2in13_V4.EPD()
-            epd.init()
-            return epd
-    except Exception as e:
-        logging.error(f"Error initializing display: {e}")
-        raise
-
-def update_display(epd, image, text_styles, full_refresh=False):
-    try:
-        draw = ImageDraw.Draw(image)
-        draw.rectangle((0, 0, epd.width, epd.height), fill=0)
-
-        for style in text_styles:
-            text = style['text']
-            position = style['position']
-            font_size = style['font_size']
-            try:
-                if epd.width == 122 and epd.height == 250:
-                    font = ImageFont.load_default()
-                else:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-            except IOError:
-                logging.error("Error loading font:  using default font")
-                font = ImageFont.load_default()
-
-            draw.text(position, text, font=font, fill=255)
-
-        epd.displayPartial(epd.getbuffer(image))
-        if full_refresh:
-            epd.display(epd.getbuffer(image))
-        else:
-            epd.displayPartial(epd.getbuffer(image))
-    except Exception as e:
-        logging.error(f"Error updating display: {e}")
-
-
 def get_online_hosts(network):
     try:
         nm = nmap.PortScanner()
-        nm.scan(hosts=network, arguments='-sn')
+        logging.info(f"Scanning network: {network}")
+        nm.scan(hosts=network, arguments='-sn --unprivileged')
+        logging.info(f"Scan results: {nm.all_hosts()}")
         online_hosts = [host for host in nm.all_hosts() if nm[host].state() == "up"]
         return online_hosts
     except Exception as e:
         logging.error(f"Error getting online hosts: {e}")
         return []
 
+def log_open(ip, open_ports):
+    data = {
+        "host": ip,
+        "ports": open_ports
+    }
+    with open('./output/online_ips_ports.json', 'r+') as f:
+        try:
+            existing_data = json.load(f)
+        except json.JSONDecodeError:
+            existing_data = []
+        existing_data.append(data)
+        f.seek(0)
+        json.dump(existing_data, f, indent=4)
+        f.truncate()
 
-def log_ip_and_ports(ip, open_ports):
-    try:
-        with open('./output/online_ips_ports.txt', 'a') as f:
-            f.write(f"Host: {ip}\n")
-            f.write(f"Ports: {', '.join(map(str, open_ports))}\n\n")
-    except Exception as e:
-        logging.error(f"Error logging IP and ports for {ip}: {e}")
+def log_closed(ip):
+    with open('./output/closed_ip.txt', 'a') as f:
+        f.write(f"{ip}\n")
 
-COMMON_PORTS = [
-    22, 21, 80, 8080, 3000, 5000, 6666, 443, 3389, 23, 25, 53, 110, 143, 445, 5900, 2375, 3306, 6379, 27017
-]
+def get_ports():
+    ports = config_data.get('ports', '')
+    return list(map(int, ports.split(','))) if ports else []
+
+default_ports = get_ports()
 
 def scan_ports(host, ports):
     try:
@@ -93,26 +72,18 @@ def scan_ports(host, ports):
 
 @click.command()
 @click.option('--simulate', is_flag=True, default=False, help='Simulate the display (no hardware required)')
-@click.option('--network', default='192.168.0.0/24', show_default=True, help='Network range to scan (default: 192.168.0.0/24)')
-@click.option('--ports', default=','.join(map(str, COMMON_PORTS)), show_default=True, help='Comma-separated list of ports to scan (default: common ports)')
+@click.option('--network', default=f'{currentIP}', show_default=True, help='Network range to scan')
+@click.option('--ports', default=','.join(map(str, default_ports)), show_default=True, help='Comma-separated list of ports to scan')
 def main(simulate, network, ports):
     try:
         ports = list(map(int, ports.split(',')))
-        
         online_hosts = get_online_hosts(network)
         remaining_hosts = len(online_hosts)
         backlog = deque(maxlen=5)
 
         epd = initialize_display(simulate=simulate)
         image = Image.new('1', (epd.width, epd.height), 0)
-
-        if simulate:
-            font_large = ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", 12)
-            font_small = ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", 8)
-        else:
-            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 8)
-
+        
         boot_text_styles = [
             {'text': 'Scanning...', 'position': (10, 10), 'font_size': 12}
         ]
@@ -128,9 +99,12 @@ def main(simulate, network, ports):
                 remaining_hosts -= 1
 
                 if open_ports:
-                    log_ip_and_ports(host, open_ports)
+                    log_open(host, open_ports)
                     backlog.appendleft((host, open_ports))
-
+                else:
+                    print(f"No open ports found for {host}")
+                    log_closed(host)
+                
                 text_styles = [
                     {'text': f"Scanning... {remaining_hosts} left", 'position': (10, 10), 'font_size': 10}
                 ]
@@ -155,4 +129,3 @@ def main(simulate, network, ports):
 
 if __name__ == "__main__":
     main()
-
