@@ -85,7 +85,7 @@ def main(simulate, network, ports):
         image = Image.new('1', (epd.width, epd.height), 0)
         
         boot_text_styles = [
-            {'text': 'Scanning...', 'position': (10, 10), 'font_size': 12}
+            {'text': 'Scanning...', 'position': (4, 10), 'font_size': 12}
         ]
         update_display(epd, image, boot_text_styles, full_refresh=True)
         time.sleep(2)
@@ -106,14 +106,14 @@ def main(simulate, network, ports):
                     log_closed(host)
                 
                 text_styles = [
-                    {'text': f"Scanning... {remaining_hosts} left", 'position': (10, 10), 'font_size': 10}
+                    {'text': f"Scanning... {remaining_hosts} left", 'position': (4, 10), 'font_size': 10}
                 ]
 
                 y_position = 36
                 for ip, ports in backlog:
-                    text_styles.append({'text': f"IP: {ip}", 'position': (10, y_position), 'font_size': 10})
+                    text_styles.append({'text': f"IP: {ip}", 'position': (4, y_position), 'font_size': 10})
                     y_position += 16
-                    text_styles.append({'text': f"Ports: {', '.join(map(str, ports))}", 'position': (10, y_position), 'font_size': 8})
+                    text_styles.append({'text': f"Ports: {', '.join(map(str, ports))}", 'position': (4, y_position), 'font_size': 8})
                     y_position += 16
 
                 update_display(epd, image, text_styles)

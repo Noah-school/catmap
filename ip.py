@@ -49,20 +49,16 @@ def get_ipaddress_win():
 
 def get_ip_address(simulate=True, redo_config=False):
     if simulate:
-        ipInfo = get_ipaddress_win()
-        
         config_data = config.get()
+        ipInfo = get_ipaddress_win()
         
         if len(ipInfo) == 1:
             config_data['network'] = ipInfo[0].ip
-            config.config = config_data
-            config.save()
             return ipInfo[0]
         
         if 'network' in config_data and not redo_config:
-            for network in ipInfo:
-                if str(network.ip) == config_data['network'].split('/')[0]:
-                    return network
+            return config_data['network']
+            
         else:
             click.echo("Multiple IP's found:")
             for i, network in enumerate(ipInfo, 1):
@@ -74,10 +70,10 @@ def get_ip_address(simulate=True, redo_config=False):
             changePrefix = click.confirm(f"Do you want to change the Prefix? (current: {selectedNetwork.prefix})", default=False)
             if changePrefix:
                 newPrefix = click.prompt("Enter new Prefix", type=click.IntRange(0, 32))
-            
-            config_data['network'] = f"{selectedNetwork.ip}/{newPrefix}"
-            config.config = config_data
-            config.save()
+                config_data['network'] = f"{selectedNetwork.ip}/{newPrefix}"
+        config.config = config_data
+        config.save()
+        return config_data['network']
     else:
         while True:
             result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
