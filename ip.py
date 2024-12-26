@@ -1,61 +1,95 @@
 import os
 import time
 import subprocess
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import click
-from simulate_eink import SimulatedEPD
+from display import initialize_display, update_display
+from config import Config
+import ipaddress
 
-def initialize_display(simulate=True):
+
+class Interface:
+    def __init__(self, ip, mask, desc):
+        ipa = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
+        self.network = ipa.with_prefixlen
+        self.ip = ipa.network_address
+        self.prefix = ipa.prefixlen
+        self.desc = desc
+        
+    def __str__(self):
+        return self.network
+    
+    def __format__(self, format_spec):
+        return str(self).__format__(format_spec)
+
+config_path = os.path.join(os.path.dirname(__file__), 'catmap.conf')
+config = Config(config_path)
+
+def get_ipaddress_win():
+    result = subprocess.run(['ipconfig', '/all' ,'|', 'findstr', 'Description IPv4 Subnet'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    ipInfo = []
+    lines = result.stdout.decode().splitlines()
+    ip_line = None
+    subnet_line = None
+    
+    for line in lines:
+        if "IPv4 Address" in line:
+            ip = line.split(':')[1].strip()
+            ip_line = ip.split('(')[0].strip()
+        elif "Subnet Mask" in line:
+            subnet_line = line.split(':')[1].strip()
+        elif "Description" in line:
+            if ip_line and subnet_line:
+                desc_line = line.split(':')[1].strip()
+                network = Interface(ip_line, subnet_line, desc_line)
+                ipInfo.append(network)
+                ip_line = None
+                subnet_line = None
+    return ipInfo
+
+def get_ip_address(simulate=True, redo_config=False):
     if simulate:
-        return SimulatedEPD()
-    else:
-        from waveshare_epd import epd2in13_V4
-        epd = epd2in13_V4.EPD()
-        epd.init()
-        return epd
-
-def update_display(epd, image, text_styles, logo_path=None):
-    draw = ImageDraw.Draw(image)
-    draw.rectangle((0, 0, epd.width, epd.height), fill=0)
-    
-    if logo_path:
-        logo = Image.open(logo_path)
-        logo_width, logo_height = logo.size
-        if logo_width > epd.width or logo_height > epd.height:
-            logo.thumbnail((epd.width, epd.height))
-        center_x = (epd.width - logo.width) // 2
-        center_y = (epd.height - logo.height) // 2
-        image.paste(logo, (center_x, center_y))
-    
-    for style in text_styles:
-        text = style['text']
-        position = style['position']
-        font_size = style['font_size']
-        try:
-            if epd.width == 122 and epd.height == 250:
-                font = ImageFont.load_default()
-            else:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-        except IOError:
-            font = ImageFont.load_default()
-        draw.text(position, text, font=font, fill=255)
-    
-    epd.display(epd.getbuffer(image))
-
-def get_ip_address(simulate=True):
-    if simulate:
-        return "192.168.1.100"
+        ipInfo = get_ipaddress_win()
+        
+        config_data = config.get()
+        
+        if len(ipInfo) == 1:
+            config_data['network'] = ipInfo[0].ip
+            config.config = config_data
+            config.save()
+            return ipInfo[0]
+        
+        if 'network' in config_data and not redo_config:
+            for network in ipInfo:
+                if str(network.ip) == config_data['network'].split('/')[0]:
+                    return network
+        else:
+            click.echo("Multiple IP's found:")
+            for i, network in enumerate(ipInfo, 1):
+                click.echo(f"{i}. {network.network}")
+            
+            choice = click.prompt("Set default network", type=click.IntRange(1, len(ipInfo)))
+            selectedNetwork = ipInfo[choice - 1]
+            
+            changePrefix = click.confirm(f"Do you want to change the Prefix? (current: {selectedNetwork.prefix})", default=False)
+            if changePrefix:
+                newPrefix = click.prompt("Enter new Prefix", type=click.IntRange(0, 32))
+            
+            config_data['network'] = f"{selectedNetwork.ip}/{newPrefix}"
+            config.config = config_data
+            config.save()
     else:
         while True:
             result = subprocess.run(['ip', 'addr', 'show', 'wlan0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            ip_address = next((line.split()[1].split('/')[0] for line in result.stdout.decode().splitlines() if 'inet ' in line), None)
+            ip_address = next((line.split()[1] for line in result.stdout.decode().splitlines() if 'inet ' in line), None)
             if ip_address:
                 return ip_address
             time.sleep(1)
 
 @click.command()
 @click.option('--simulate', is_flag=True, default=False, help='Simulate the display (no hardware required)')
-def main(simulate):
+@click.option('--reset-config', is_flag=True, default=False, help='reset the default network configuration')
+def main(simulate, reset_config):
     ip_address = None
     script_dir = os.path.dirname(__file__)
     
@@ -64,10 +98,10 @@ def main(simulate):
     epd = initialize_display(simulate=simulate)
     image = Image.new('1', (epd.width, epd.height), 0)
     
-    boot_text_styles = [{'text': 'Waiting for IP...', 'position': (10, epd.height - 20), 'font_size': 9}]
+    boot_text_styles = [{'text': 'Waiting for IP...', 'position': (4 , epd.height - 20), 'font_size': 9}]
     
     while not ip_address:
-        ip_address = get_ip_address(simulate=simulate)
+        ip_address = get_ip_address(simulate, reset_config)
         boot_text_styles[0]['text'] = f"IP: {ip_address : ^22}" if ip_address else "Waiting for IP..."
         update_display(epd, image, boot_text_styles, logo_path=logo_path)
         time.sleep(1)
